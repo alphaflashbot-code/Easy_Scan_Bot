@@ -1,65 +1,74 @@
 import telebot
-from PIL import Image
 import os
+import speech_recognition as sr
+from pydub import AudioSegment
 from flask import Flask
 from threading import Thread
-import time
 
-# --- ЧАСТЬ 1: НАСТРОЙКИ БОТА ---
-# Лучше брать токен из переменных окружения (безопасность), 
-# но для начала можно оставить и так, или настроить Environment Variables в Render.
-import os
-TOKEN = os.environ.get('TOKEN') 
+# --- ЧАСТЬ 1: НАСТРОЙКИ ---
+# Получаем токен из настроек Render (или вставьте его сюда вручную для тестов)
+TOKEN = os.environ.get('TOKEN')
 bot = telebot.TeleBot(TOKEN)
 
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    bot.reply_to(message, "Привет! Я работаю на сервере Render! 🚀\nПришли фото для конвертации.")
+    bot.reply_to(message, "Привет! Перешли мне голосовое сообщение, и я превращу его в текст. 🎙️ -> 📝")
 
-@bot.message_handler(content_types=['photo'])
-def handle_photo(message):
+# --- ЧАСТЬ 2: ЛОГИКА ГОЛОСОВЫХ ---
+@bot.message_handler(content_types=['voice'])
+def handle_voice(message):
     try:
         chat_id = message.chat.id
-        file_info = bot.get_file(message.photo[-1].file_id)
+        bot.send_message(chat_id, "🎧 Слушаю и обрабатываю...")
+
+        # 1. Скачиваем файл
+        file_info = bot.get_file(message.voice.file_id)
         downloaded_file = bot.download_file(file_info.file_path)
 
-        src_filename = f"photo_{chat_id}.jpg"
-        pdf_filename = f"document_{chat_id}.pdf"
+        ogg_filename = f"voice_{chat_id}.ogg"
+        wav_filename = f"voice_{chat_id}.wav"
 
-        with open(src_filename, 'wb') as new_file:
+        # Сохраняем OGG
+        with open(ogg_filename, 'wb') as new_file:
             new_file.write(downloaded_file)
 
-        bot.send_message(chat_id, "⚙️ Конвертирую...")
+        # 2. Конвертируем OGG -> WAV (Требует FFmpeg!)
+        sound = AudioSegment.from_ogg(ogg_filename)
+        sound.export(wav_filename, format="wav")
 
-        image = Image.open(src_filename)
-        rgb_image = image.convert('RGB')
-        rgb_image.save(pdf_filename)
+        # 3. Распознаем речь (через Google)
+        recognizer = sr.Recognizer()
+        with sr.AudioFile(wav_filename) as source:
+            audio_data = recognizer.record(source)
+            # language='ru-RU' — распознаем русский язык
+            text = recognizer.recognize_google(audio_data, language='ru-RU')
 
-        with open(pdf_filename, 'rb') as doc:
-            bot.send_document(chat_id, doc, caption="Готово! ✅")
+        # 4. Отправляем результат
+        bot.reply_to(message, f"🗣 Текст:\n{text}")
 
-        os.remove(src_filename)
-        os.remove(pdf_filename)
-
+    except sr.UnknownValueError:
+        bot.reply_to(message, "🤔 Не смог разобрать слова. Попробуй говорить четче.")
     except Exception as e:
         bot.reply_to(message, f"Ошибка: {e}")
+    finally:
+        # 5. Уборка мусора
+        if os.path.exists(ogg_filename): os.remove(ogg_filename)
+        if os.path.exists(wav_filename): os.remove(wav_filename)
 
-# --- ЧАСТЬ 2: ФЕЙКОВЫЙ ВЕБ-СЕРВЕР ДЛЯ RENDER ---
+# --- ЧАСТЬ 3: СЕРВЕР ДЛЯ RENDER ---
 app = Flask('')
 
 @app.route('/')
 def home():
-    return "I am alive"
+    return "Bot is listening..."
 
 def run():
-    # Render ожидает, что мы будем слушать порт 0.0.0.0
     app.run(host='0.0.0.0', port=8080)
 
 def keep_alive():
     t = Thread(target=run)
     t.start()
 
-# --- ЗАПУСК ---
 if __name__ == "__main__":
-    keep_alive() # Запускаем веб-сервер в отдельном потоке
-    bot.infinity_polling() # Запускаем бота
+    keep_alive()
+    bot.infinity_polling()
