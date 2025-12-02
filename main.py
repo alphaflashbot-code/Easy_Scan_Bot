@@ -8,7 +8,8 @@ import time
 # --- ЧАСТЬ 1: НАСТРОЙКИ БОТА ---
 # Лучше брать токен из переменных окружения (безопасность), 
 # но для начала можно оставить и так, или настроить Environment Variables в Render.
-TOKEN = 'ВАШ_ТОКЕН_ЗДЕСЬ' 
+import os
+TOKEN = os.environ.get('TOKEN') 
 bot = telebot.TeleBot(TOKEN)
 
 @bot.message_handler(commands=['start'])
