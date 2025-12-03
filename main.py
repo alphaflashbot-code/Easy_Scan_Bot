@@ -9,7 +9,7 @@ from threading import Thread
 TOKEN = os.environ.get('TOKEN')
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
 
-# Сюда вставь юзернейм своего канала (для рекламы), когда создашь его
+# Вставь сюда свой канал, когда создашь (или оставь пустым пока)
 CHANNEL_USERNAME = "@твоем_канале_тут" 
 
 bot = telebot.TeleBot(TOKEN)
@@ -18,13 +18,14 @@ client = OpenAI(
     base_url="https://api.groq.com/openai/v1"
 )
 
-# --- ПРИВЕТСТВИЕ И РЕКЛАМА ---
+# --- ПРИВЕТСТВИЕ ---
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
-    # Создаем кнопку со ссылкой на канал
     keyboard = telebot.types.InlineKeyboardMarkup()
-    url_button = telebot.types.InlineKeyboardButton(text="📢 Новости проекта", url=f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}")
-    keyboard.add(url_button)
+    # Если канал указан, добавляем кнопку
+    if CHANNEL_USERNAME != "@твоем_канале_тут":
+        url_button = telebot.types.InlineKeyboardButton(text="📢 Новости проекта", url=f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}")
+        keyboard.add(url_button)
     
     bot.reply_to(message, 
                  "👋 **Привет!**\n\nЯ — умный секретарь. Перешли мне голосовое, и я:\n"
@@ -63,32 +64,31 @@ def handle_voice(message):
                 response_format="text"
             )
 
-        # 4. ШАГ 2: САММАРИЗАЦИЯ (Llama 3)
-        # Если текст достаточно длинный, делаем выжимку
+        # 4. ШАГ 2: САММАРИЗАЦИЯ (Llama 3.3)
         summary_text = ""
-        if len(transcription) > 50: # Если больше 50 символов
+        # Делаем саммари, только если текст длиннее 50 символов
+        if len(transcription) > 50:
             bot.edit_message_text("🧠 **Выделяю главное...**", chat_id, msg.message_id, parse_mode='Markdown')
             
             completion = client.chat.completions.create(
-                model="llama3-8b-8192", # Быстрая и умная модель
+                # ВОТ ЗДЕСЬ БЫЛА ОШИБКА, СТАВИМ НОВУЮ МОДЕЛЬ:
+                model="llama-3.3-70b-versatile", 
                 messages=[
-                    {"role": "system", "content": "Ты полезный ассистент. Твоя задача: прочитать текст голосового сообщения и написать краткую выжимку (Summary) на русском языке. Выдели главные мысли пунктами. Не пиши вступлений, сразу суть."},
+                    {"role": "system", "content": "Ты профессиональный редактор. Твоя задача: прочитать текст голосового сообщения и написать краткую выжимку (Summary) на русском языке. Выдели главные мысли пунктами. Не пиши вступлений типа 'вот пересказ', сразу суть."},
                     {"role": "user", "content": f"Текст сообщения: {transcription}"}
                 ],
                 temperature=0.5,
             )
             summary_text = completion.choices[0].message.content
 
-        # 5. ФОРМИРУЕМ КРАСИВЫЙ ОТВЕТ
+        # 5. ФОРМИРУЕМ ОТВЕТ
         final_response = f"📝 **Полный текст:**\n{transcription}\n\n"
         
         if summary_text:
             final_response += f"🧠 **Кратко (Суть):**\n{summary_text}\n"
 
-        # Добавляем подпись (для виральности)
-        final_response += f"\n🤖 _Сделано в {bot.get_me().username}_"
+        final_response += f"\n🤖 _Сделано в @{bot.get_me().username}_"
 
-        # Отправляем
         bot.send_message(chat_id, final_response, parse_mode='Markdown')
         bot.delete_message(chat_id, msg.message_id)
 
@@ -98,6 +98,7 @@ def handle_voice(message):
 
     except Exception as e:
         bot.reply_to(message, f"Ошибка: {e}")
+        # Чистим мусор даже при ошибке
         if os.path.exists(ogg_filename): os.remove(ogg_filename)
         if os.path.exists(mp3_filename): os.remove(mp3_filename)
 
@@ -106,7 +107,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "AI Voice Bot is Running"
+    return "AI Bot Updated"
 
 def run():
     app.run(host='0.0.0.0', port=8080)
