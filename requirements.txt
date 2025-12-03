@@ -2,4 +2,3 @@ pyTelegramBotAPI
 flask
 openai
 pydub
-pyaudioop
