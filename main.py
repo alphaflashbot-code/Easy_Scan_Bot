@@ -9,7 +9,7 @@ from threading import Thread
 TOKEN = os.environ.get('TOKEN')
 GROQ_API_KEY = os.environ.get('GROQ_API_KEY')
 
-# Вставь сюда свой канал, когда создашь (или оставь пустым пока)
+# Вставь сюда свой канал (или оставь как есть)
 CHANNEL_USERNAME = "@твоем_канале_тут" 
 
 bot = telebot.TeleBot(TOKEN)
@@ -22,24 +22,24 @@ client = OpenAI(
 @bot.message_handler(commands=['start'])
 def send_welcome(message):
     keyboard = telebot.types.InlineKeyboardMarkup()
-    # Если канал указан, добавляем кнопку
     if CHANNEL_USERNAME != "@твоем_канале_тут":
         url_button = telebot.types.InlineKeyboardButton(text="📢 Новости проекта", url=f"https://t.me/{CHANNEL_USERNAME.replace('@', '')}")
         keyboard.add(url_button)
     
     bot.reply_to(message, 
-                 "👋 **Привет!**\n\nЯ — умный секретарь. Перешли мне голосовое, и я:\n"
+                 "👋 Привет!\n\nЯ — умный секретарь. Перешли мне голосовое, и я:\n"
                  "1. 📝 Превращу его в текст.\n"
-                 "2. 🧠 **Выделю главную суть** (Саммари).\n\n"
+                 "2. 🧠 Выделю главную суть (Саммари).\n\n"
                  "Просто перешли мне сообщение!", 
-                 parse_mode='Markdown', reply_markup=keyboard)
+                 reply_markup=keyboard)
 
 # --- ОБРАБОТКА ГОЛОСА ---
 @bot.message_handler(content_types=['voice'])
 def handle_voice(message):
     try:
         chat_id = message.chat.id
-        msg = bot.send_message(chat_id, "🎧 **Слушаю и анализирую...**", parse_mode='Markdown')
+        # Тут можно использовать Markdown, так как текст статичный (мы сами его написали)
+        msg = bot.send_message(chat_id, "🎧 *Слушаю и анализирую...*", parse_mode='Markdown')
 
         # 1. Скачиваем
         file_info = bot.get_file(message.voice.file_id)
@@ -55,7 +55,7 @@ def handle_voice(message):
         audio.export(mp3_filename, format="mp3")
 
         # 3. ШАГ 1: ТРАНСКРИБАЦИЯ (Whisper)
-        bot.edit_message_text("✍️ **Записываю текст...**", chat_id, msg.message_id, parse_mode='Markdown')
+        bot.edit_message_text("✍️ *Записываю текст...*", chat_id, msg.message_id, parse_mode='Markdown')
         
         with open(mp3_filename, "rb") as audio_file:
             transcription = client.audio.transcriptions.create(
@@ -66,30 +66,29 @@ def handle_voice(message):
 
         # 4. ШАГ 2: САММАРИЗАЦИЯ (Llama 3.3)
         summary_text = ""
-        # Делаем саммари, только если текст длиннее 50 символов
         if len(transcription) > 50:
-            bot.edit_message_text("🧠 **Выделяю главное...**", chat_id, msg.message_id, parse_mode='Markdown')
+            bot.edit_message_text("🧠 *Выделяю главное...*", chat_id, msg.message_id, parse_mode='Markdown')
             
             completion = client.chat.completions.create(
-                # ВОТ ЗДЕСЬ БЫЛА ОШИБКА, СТАВИМ НОВУЮ МОДЕЛЬ:
                 model="llama-3.3-70b-versatile", 
                 messages=[
-                    {"role": "system", "content": "Ты профессиональный редактор. Твоя задача: прочитать текст голосового сообщения и написать краткую выжимку (Summary) на русском языке. Выдели главные мысли пунктами. Не пиши вступлений типа 'вот пересказ', сразу суть."},
+                    {"role": "system", "content": "Ты профессиональный редактор. Твоя задача: прочитать текст голосового сообщения и написать краткую выжимку (Summary) на русском языке. Используй обычные тире (-) для списков, избегай звездочек. Выдели главные мысли пунктами. Не пиши вступлений, сразу суть."},
                     {"role": "user", "content": f"Текст сообщения: {transcription}"}
                 ],
                 temperature=0.5,
             )
             summary_text = completion.choices[0].message.content
 
-        # 5. ФОРМИРУЕМ ОТВЕТ
-        final_response = f"📝 **Полный текст:**\n{transcription}\n\n"
+        # 5. ФОРМИРУЕМ ОТВЕТ (БЕЗ MARKDOWN, ЧТОБЫ НЕ БЫЛО ОШИБОК)
+        final_response = f"📝 ПОЛНЫЙ ТЕКСТ:\n{transcription}\n\n"
         
         if summary_text:
-            final_response += f"🧠 **Кратко (Суть):**\n{summary_text}\n"
+            final_response += f"🧠 КРАТКО (СУТЬ):\n{summary_text}\n"
 
-        final_response += f"\n🤖 _Сделано в @{bot.get_me().username}_"
+        final_response += f"\n🤖 Сделано в @{bot.get_me().username}"
 
-        bot.send_message(chat_id, final_response, parse_mode='Markdown')
+        # Важно: убрали parse_mode='Markdown', теперь бот не упадет от странных символов
+        bot.send_message(chat_id, final_response)
         bot.delete_message(chat_id, msg.message_id)
 
         # Уборка
@@ -97,8 +96,9 @@ def handle_voice(message):
         os.remove(mp3_filename)
 
     except Exception as e:
-        bot.reply_to(message, f"Ошибка: {e}")
-        # Чистим мусор даже при ошибке
+        # Если ошибка, пишем её в чат, чтобы знать причину
+        bot.send_message(chat_id, f"Произошла ошибка: {e}")
+        # Чистим мусор
         if os.path.exists(ogg_filename): os.remove(ogg_filename)
         if os.path.exists(mp3_filename): os.remove(mp3_filename)
 
@@ -107,7 +107,7 @@ app = Flask('')
 
 @app.route('/')
 def home():
-    return "AI Bot Updated"
+    return "Bot is stable"
 
 def run():
     app.run(host='0.0.0.0', port=8080)
